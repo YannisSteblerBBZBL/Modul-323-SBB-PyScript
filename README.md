@@ -80,8 +80,6 @@ Beenden: `Ctrl+C` oder bei „Weitere Route berechnen?“ mit `n`.
 
 ### Output (V1.0 und V2.0)
 
-**Vorgabe:** V1.0 und V2.0 sollen **denselben Output-Aufbau** (Header/Struktur) generieren; Unterschiede ergeben sich nur aus den eingegebenen Stationen/Datum/Zeit und den verfügbaren GTFS-Daten.
-
 **Beispiel (gekürzt)**
 
 ```text
