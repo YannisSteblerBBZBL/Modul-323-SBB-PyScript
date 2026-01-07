@@ -2,7 +2,7 @@
 
 Ein Python-basiertes System zur Berechnung optimaler ÖV-Routen basierend auf GTFS-Daten (General Transit Feed Specification) der Schweizerischen Bundesbahnen (SBB).
 
-## 📋 Inhaltsverzeichnis
+## Inhaltsverzeichnis
 
 - [Übersicht](#übersicht)
 - [Projektstruktur](#projektstruktur)
@@ -12,22 +12,23 @@ Ein Python-basiertes System zur Berechnung optimaler ÖV-Routen basierend auf GT
 - [Skript-Dokumentation](#skript-dokumentation)
 - [GTFS-Daten](#gtfs-daten)
 
-## 🎯 Übersicht
+## Übersicht
 
-Dieses Projekt implementiert einen **Connection Scan Algorithm (CSA)** zur Berechnung optimaler ÖV-Routen zwischen zwei Haltestellen. Es unterstützt:
+Dieses Projekt berechnet die schnellsten ÖV-Routen zwischen zwei Stationen basierend auf GTFS-Daten. Der Fokus liegt auf Performance: Es werden nur relevante Verbindungen betrachtet und die Suche wird auf die besten Routen begrenzt.
 
 - Routenberechnung zwischen beliebigen Stationen
 - Berücksichtigung von Datum und Uhrzeit
 - Umstiegsberechnung mit Wartezeiten
-- Zusätzliche Analysefunktionen (schnellste Verbindungen, Top-Haltestellen, Übernacht-Verbindungen)
+- Ausgabe mehrerer schneller Alternativen (z.B. Top 5)
+- Robustes Stationen-Matching (Unicode/casefold) und Station/Plattform-Unterstützung (parent_station)
 
-## 📁 Projektstruktur
+## Projektstruktur
 
 ```
 Modul-323-SBB-PyScript/
 ├── main.py                 # Hauptskript - Einstiegspunkt der Anwendung
 ├── data_loader.py          # Lädt und verwaltet GTFS-Daten
-├── route_calculator.py     # Implementiert den Connection Scan Algorithm
+├── route_calculator.py     # Routenberechnung (K-begrenzte Connection-Scan-Suche)
 ├── analyzer.py             # Zusätzliche Analysefunktionen
 ├── formatter.py            # Formatierung der Routenausgabe
 ├── models.py               # Datenmodelle (Connection, RouteSegment)
@@ -44,12 +45,12 @@ Modul-323-SBB-PyScript/
     └── trips.txt
 ```
 
-## 🔧 Voraussetzungen
+## Voraussetzungen
 
 - Python 3.8 oder höher
 - GTFS-Daten im `data/` Verzeichnis
 
-## 📦 Installation
+## Installation
 
 1. **Repository klonen oder Projektordner öffnen**
 
@@ -63,7 +64,7 @@ Dies installiert:
 - `pandas` (>=2.0.0) - Datenverarbeitung und DataFrame-Operationen
 - `numpy` (>=1.24.0) - Numerische Operationen
 
-## 🚀 Verwendung
+## Verwendung
 
 ### Interaktive Routenberechnung
 
@@ -102,22 +103,23 @@ data_loader = GTFSDataLoader(data_dir="data")
 calculator = RouteCalculator(data_loader)
 formatter = RouteFormatter()
 
-# Berechne Route
-route = calculator.find_route(
+# Berechne die Top 5 schnellsten Routen
+routes = calculator.find_route(
     start_name="Bern",
     end_name="Genf",
     date="2025-12-15",  # Format: YYYY-MM-DD oder YYYYMMDD
-    time="10:30"        # Format: HH:MM
+    time="10:30",       # Format: HH:MM
+    max_routes=5
 )
 
 # Formatiere Ausgabe
-if route:
-    print(formatter.format_route_output(route, "Bern", "Genf", "10:30"))
+if routes:
+    print(formatter.format_route_output(routes, "Bern", "Genf", "10:30"))
 else:
     print("Keine Route gefunden.")
 ```
 
-## 📚 Skript-Dokumentation
+## Skript-Dokumentation
 
 ### `main.py`
 **Hauptskript - Interaktive Konsolenanwendung**
@@ -147,12 +149,15 @@ Die Klasse `GTFSDataLoader` ist verantwortlich für:
 - Effiziente Datenverarbeitung mit Caching
 - Konvertierung von Zeitformaten (HH:MM:SS → Sekunden)
 - Verwaltung von Service-IDs basierend auf Datum und Wochentag
+- Station/Plattform-Unterstützung über `parent_station` (Expansion auf alle Plattform-Stop-IDs)
+- Robustes String-Matching über Unicode-Normalisierung (NFKC) und casefold
 
 **Hauptfunktionen:**
 - `__init__(data_dir)` - Initialisiert den Loader und lädt alle Daten
 - `get_valid_services(date)` - Bestimmt gültige Service-IDs für ein Datum
-- `find_stop_id(stop_name)` - Findet stop_id basierend auf Stationsname (case-insensitive)
+- `find_stop_id(stop_name)` - Findet stop_id basierend auf Stationsname (robust)
 - `get_stop_name(stop_id)` - Gibt Haltestellennamen für eine stop_id zurück
+- `expand_station_stop_ids(stop_id)` - Gibt Station + Plattform-Stop-IDs zurück
 
 **Geladene Daten:**
 - `stops` - Haltestelleninformationen
@@ -165,21 +170,22 @@ Die Klasse `GTFSDataLoader` ist verantwortlich für:
 ---
 
 ### `route_calculator.py`
-**Implementiert den Connection Scan Algorithm (CSA)**
+**Routenberechnung (Connection-Scan-Variante mit Pruning)**
 
 Die Klasse `RouteCalculator` berechnet die optimale Route zwischen zwei Haltestellen.
 
 **Hauptfunktionen:**
 - `__init__(data_loader)` - Initialisiert den Calculator mit einem DataLoader
-- `find_route(start_name, end_name, date, time)` - Hauptfunktion zur Routenberechnung
-  - Findet die schnellste Route zwischen zwei Stationen
+- `find_route(start_name, end_name, date, time, max_routes=5)` - Hauptfunktion zur Routenberechnung
+  - Findet die schnellsten Routen zwischen zwei Stationen (Top N)
   - Berücksichtigt Datum und Startzeit
-  - Gibt eine Liste von `RouteSegment`-Objekten zurück
+  - Gibt eine Liste von Routen zurück (jede Route ist eine Liste von `RouteSegment`)
 - `_build_connections(date, start_time_sec)` - Baut alle gültigen Verbindungen für ein Datum
-- `_connection_scan_algorithm(...)` - Implementiert den CSA-Algorithmus
 
 **Algorithmus:**
-Der Connection Scan Algorithm durchläuft alle Verbindungen chronologisch und findet die früheste Ankunftszeit an jedem Stop. Dies ermöglicht eine effiziente Berechnung der optimalen Route.
+- Es werden nur Verbindungen zwischen aufeinanderfolgenden Halten eines Trips erstellt (stop_sequence i -> i+1), keine quadratische Self-Join-Erzeugung.
+- Die Suche hält pro Stop nur eine kleine Anzahl der besten Labels (K-Begrenzung) und bricht früh ab, sobald die Top N Zielrouten sicher sind.
+- Start/Ziel werden automatisch auf alle Plattformen einer Station erweitert, damit Stationen zuverlässig gefunden werden.
 
 ---
 
@@ -242,7 +248,7 @@ Definiert die Datenstrukturen für das Projekt.
 
 ---
 
-## 📊 GTFS-Daten
+## GTFS-Daten
 
 Das Projekt benötigt GTFS-Daten im `data/` Verzeichnis. GTFS (General Transit Feed Specification) ist ein Standardformat für ÖV-Daten.
 
@@ -260,7 +266,7 @@ Das Projekt benötigt GTFS-Daten im `data/` Verzeichnis. GTFS (General Transit F
 **Datenquelle:**
 GTFS-Daten können von der SBB oder anderen ÖV-Anbietern bezogen werden. Stellen Sie sicher, dass alle erforderlichen Dateien im `data/` Verzeichnis vorhanden sind.
 
-## 🔍 Beispiel-Ausgabe
+## Beispiel-Ausgabe
 
 ```
 ==================================================
@@ -289,9 +295,9 @@ Datum: 2025-12-15, Zeit: 08:00
 
 Baue Verbindungen für 2025-12-15...
   12345 Verbindungen gefunden
-Berechne optimale Route...
+Berechne optimale Routen...
 ==================================================
- OptimalRoute.CH | Verbindung gefunden
+ OptimalRoute.CH | Route 1 von 5
 ==================================================
 Startpunkt: Basel SBB (08:00)
 Zielpunkt:  Zürich HB (09:30)
@@ -306,16 +312,17 @@ GESAMTREISEZEIT: 1 Stunde, 30 Minuten
 Weitere Route berechnen? (j/n): 
 ```
 
-## 📝 Hinweise
+## Hinweise
 
 - Die Initialisierung des DataLoaders kann einige Zeit dauern, besonders beim Laden von `stop_times.txt` bei großen Datensätzen
-- Die Routenberechnung verwendet den Connection Scan Algorithm, der für große Netzwerke effizient ist
-- Stationennamen werden case-insensitive und mit Teilstring-Matching gesucht
+- Die Routenberechnung ist auf Performance optimiert (keine Self-Join-Erzeugung aller Stop-Paare, Pruning/Begrenzung pro Stop)
+- Stationennamen werden robust (Unicode/casefold) und mit Teilstring-Matching gesucht
+- Start/Ziel werden auf Station + Plattformen erweitert (parent_station), damit Routing realistische Stop-IDs nutzt
 - Das System unterstützt Übernacht-Verbindungen (Zeiten > 24:00)
 - Bei Datum und Zeit können Sie einfach Enter drücken, um die Standardwerte (heute/aktuelle Zeit) zu verwenden
 - Das Programm kann mit `Ctrl+C` jederzeit beendet werden
 
-## 🐛 Fehlerbehebung
+## Fehlerbehebung
 
 **Problem:** "Keine Route gefunden"
 - Überprüfen Sie, ob die Stationsnamen korrekt sind
@@ -327,10 +334,10 @@ Weitere Route berechnen? (j/n):
 - Verwenden Sie den vollständigen Namen (z.B. "Basel SBB" statt nur "Basel")
 
 **Problem:** Langsame Performance
-- Dies ist normal bei großen GTFS-Datensätzen
-- Der DataLoader verwendet Caching für bessere Performance bei wiederholten Abfragen
+- `stop_times.txt` ist groß; das Laden dauert einmalig länger.
+- Danach ist die Suche auf wenige Kandidaten begrenzt (Top N) und sollte schnell reagieren.
 
-## 📄 Lizenz
+## Lizenz
 
 Dieses Projekt wurde im Rahmen von Modul 323 erstellt.
 
