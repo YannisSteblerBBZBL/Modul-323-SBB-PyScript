@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
+import unicodedata
 from datetime import datetime
 from typing import Dict, Optional
 
@@ -28,6 +29,14 @@ class GTFSDataLoader:
         
         # Cache: stop_id -> stop_name
         self.stop_id_to_name: Dict[str, str] = {}
+
+        # Normalisierte Stop-Namen (für robustes Matching, z.B. Umlaut/Unicode-Varianten)
+        self._stops_name_norm: Optional[pd.Series] = None
+
+        # Station/Plattform Mapping: parent_station -> [child stop_ids]
+        self._parent_to_children: Dict[str, list] = {}
+        # stop_id -> parent_station (oder "" wenn keiner)
+        self._stop_to_parent: Dict[str, str] = {}
         
         print("Lade GTFS-Daten...")
         self._load_data()
@@ -38,11 +47,23 @@ class GTFSDataLoader:
         # Stops (nur benötigte Spalten)
         self.stops = pd.read_csv(
             os.path.join(self.data_dir, "stops.txt"),
-            usecols=['stop_id', 'stop_name'],
-            dtype={'stop_id': str, 'stop_name': str}
+            usecols=['stop_id', 'stop_name', 'parent_station'],
+            dtype={'stop_id': str, 'stop_name': str, 'parent_station': str}
         )
+        # Normalisierte Namen cachen (casefold + Unicode Normalization)
+        self._stops_name_norm = self.stops['stop_name'].map(self._normalize_name)
         # Cache: stop_id -> stop_name
         self.stop_id_to_name = dict(zip(self.stops['stop_id'], self.stops['stop_name']))
+
+        # parent_station Mapping aufbauen (für Routing: Station -> alle Plattformen)
+        # parent_station kann leer/NaN sein
+        parent_series = self.stops['parent_station'].fillna('').astype(str)
+        self._stop_to_parent = dict(zip(self.stops['stop_id'], parent_series))
+        self._parent_to_children = {}
+        for stop_id, parent in zip(self.stops['stop_id'], parent_series):
+            parent = parent.strip()
+            if parent:
+                self._parent_to_children.setdefault(parent, []).append(stop_id)
         
         # Stop Times - nur relevante Spalten laden für bessere Performance
         print("  Lade stop_times.txt (dies kann einige Zeit dauern)...")
@@ -162,7 +183,8 @@ class GTFSDataLoader:
     
     def find_stop_id(self, stop_name: str) -> Optional[str]:
         """
-        Findet stop_id basierend auf Stationsname (case-insensitive, Teilstring-Match)
+        Findet stop_id basierend auf Stationsname (case-insensitive)
+        Gibt nur zurück wenn exakt oder wenn Station mit Suchstring beginnt
         
         Args:
             stop_name: Name der Station
@@ -170,24 +192,124 @@ class GTFSDataLoader:
         Returns:
             stop_id oder None wenn nicht gefunden
         """
-        stop_name_lower = stop_name.lower().strip()
+        stop_name_norm = self._normalize_name(stop_name)
         
         # Exakter Match
-        exact_match = self.stops[
-            self.stops['stop_name'].str.lower() == stop_name_lower
-        ]
+        exact_match = self.stops[self._stops_name_norm == stop_name_norm]
         if len(exact_match) > 0:
             return exact_match.iloc[0]['stop_id']
         
-        # Teilstring-Match
-        partial_match = self.stops[
-            self.stops['stop_name'].str.lower().str.contains(stop_name_lower, na=False)
-        ]
-        if len(partial_match) > 0:
-            return partial_match.iloc[0]['stop_id']
+        # Stationen die mit dem Suchstring beginnen
+        starts_with_match = self.stops[self._stops_name_norm.str.startswith(stop_name_norm, na=False)]
+        if len(starts_with_match) > 0:
+            return starts_with_match.iloc[0]['stop_id']
         
         return None
+    
+    def find_matching_stops(self, stop_name: str) -> list:
+        """
+        Findet alle Stationen die mit dem Suchstring beginnen oder exakt übereinstimmen
+        
+        Args:
+            stop_name: Name der Station (oder Teil davon)
+            
+        Returns:
+            Liste von Stationsnamen, sortiert (exakte Matches zuerst, dann alphabetisch)
+        """
+        stop_name_norm = self._normalize_name(stop_name)
+        
+        if not stop_name_norm:
+            return []
+        
+        # Exakte Matches
+        exact_matches = self.stops[self._stops_name_norm == stop_name_norm]['stop_name'].unique()
+        
+        # Stationen die mit dem Suchstring beginnen
+        starts_with_matches = self.stops[self._stops_name_norm.str.startswith(stop_name_norm, na=False)]['stop_name'].unique()
+        
+        # Kombiniere und entferne Duplikate
+        all_matches = list(set(list(exact_matches) + list(starts_with_matches)))
+        
+        # Sortiere: exakte Matches zuerst, dann alphabetisch
+        all_matches.sort(key=lambda x: (
+            0 if self._normalize_name(x) == stop_name_norm else 1,  # Exakte Matches zuerst
+            self._normalize_name(x)  # Dann alphabetisch
+        ))
+        
+        return all_matches
     
     def get_stop_name(self, stop_id: str) -> str:
         """Gibt den Haltestellennamen für eine stop_id zurück"""
         return self.stop_id_to_name.get(stop_id, "")
+    
+    def find_similar_stops(self, stop_name: str, max_results: int = 10) -> list:
+        """
+        Findet ähnliche Stationennamen basierend auf Teilstring-Matching
+        
+        Args:
+            stop_name: Name der Station (oder Teil davon)
+            max_results: Maximale Anzahl von Vorschlägen
+            
+        Returns:
+            Liste von Stationsnamen, die ähnlich sind
+        """
+        stop_name_norm = self._normalize_name(stop_name)
+        
+        if not stop_name_norm:
+            return []
+        
+        # Finde alle Stationen, die den Suchstring enthalten (auf normalisierten Namen)
+        similar = self.stops[self._stops_name_norm.str.contains(stop_name_norm, na=False)]['stop_name'].unique()
+        
+        # Sortiere nach Relevanz (exakte Matches zuerst, dann alphabetisch)
+        similar_list = list(similar)
+        similar_list.sort(key=lambda x: (
+            0 if self._normalize_name(x) == stop_name_norm else 1,  # Exakte Matches zuerst
+            0 if self._normalize_name(x).startswith(stop_name_norm) else 1,  # Dann solche die damit beginnen
+            self._normalize_name(x)  # Dann alphabetisch
+        ))
+        
+        return similar_list[:max_results]
+
+    def expand_station_stop_ids(self, stop_id: str) -> list:
+        """
+        Gibt alle stop_ids zurück, die zu einer Station gehören:
+        - Wenn stop_id eine Plattform ist: parent_station + alle Geschwisterplattformen
+        - Wenn stop_id eine Station ist: die Station + alle Plattformen (children)
+        """
+        if stop_id is None:
+            return []
+        stop_id = str(stop_id).strip()
+        if not stop_id:
+            return []
+
+        parent = (self._stop_to_parent.get(stop_id, "") or "").strip()
+        station_id = parent if parent else stop_id
+
+        result = [station_id]
+        children = self._parent_to_children.get(station_id, [])
+        if children:
+            result.extend(children)
+        # Duplikate entfernen, Reihenfolge behalten
+        seen = set()
+        uniq = []
+        for x in result:
+            if x not in seen:
+                seen.add(x)
+                uniq.append(x)
+        return uniq
+
+    @staticmethod
+    def _normalize_name(value: str) -> str:
+        """
+        Normalisiert Stationsnamen robust:
+        - Unicode Normalization (NFKC) für kombinierte Zeichenvarianten
+        - casefold für sprachspezifische Vergleiche
+        - trim
+        """
+        if value is None:
+            return ""
+        s = str(value).strip()
+        if not s:
+            return ""
+        return unicodedata.normalize("NFKC", s).casefold()
