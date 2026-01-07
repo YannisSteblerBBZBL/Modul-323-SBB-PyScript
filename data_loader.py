@@ -41,7 +41,7 @@ class GTFSDataLoader:
 
     def _load_stops(self):
         path = os.path.join(self.data_dir, "stops.txt")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 stop_id = (row.get("stop_id") or "").strip()
@@ -68,7 +68,7 @@ class GTFSDataLoader:
     def _load_stop_times(self):
         print("  Lade stop_times.txt (dies kann einige Zeit dauern)...")
         path = os.path.join(self.data_dir, "stop_times.txt")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 trip_id = (row.get("trip_id") or "").strip()
@@ -102,7 +102,7 @@ class GTFSDataLoader:
         # routes: route_id -> route_name
         routes_path = os.path.join(self.data_dir, "routes.txt")
         route_id_to_name = {}
-        with open(routes_path, "r", encoding="utf-8") as f:
+        with open(routes_path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 route_id = (row.get("route_id") or "").strip()
@@ -116,7 +116,7 @@ class GTFSDataLoader:
                 route_id_to_name[route_id] = name.strip()
 
         trips_path = os.path.join(self.data_dir, "trips.txt")
-        with open(trips_path, "r", encoding="utf-8") as f:
+        with open(trips_path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 trip_id = (row.get("trip_id") or "").strip()
@@ -129,7 +129,7 @@ class GTFSDataLoader:
 
     def _load_calendar(self):
         path = os.path.join(self.data_dir, "calendar.txt")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 service_id = (row.get("service_id") or "").strip()
@@ -163,7 +163,7 @@ class GTFSDataLoader:
         path = os.path.join(self.data_dir, "calendar_dates.txt")
         if not os.path.exists(path):
             return
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 service_id = (row.get("service_id") or "").strip()

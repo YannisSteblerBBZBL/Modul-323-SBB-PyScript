@@ -201,20 +201,20 @@ class RouteCalculator:
         return True
 
     def _recompute_worst_end_arrival(self, labels_by_stop, end_ids, max_routes):
-        all_pairs = []
+        all_times = []
         for eid in end_ids:
             labels = labels_by_stop.get(eid)
             if labels is not None:
                 i = 0
                 while i < len(labels):
                     lab = labels[i]
-                    all_pairs.append((lab.arrival_time, lab))
+                    all_times.append(lab.arrival_time)
                     i += 1
 
-        if len(all_pairs) < max_routes:
+        if len(all_times) < max_routes:
             return None
-        all_pairs.sort()
-        return all_pairs[max_routes - 1][0]
+        all_times.sort()
+        return all_times[max_routes - 1]
 
     def _find_multiple_routes(
         self,
@@ -304,7 +304,8 @@ class RouteCalculator:
         pairs = []
         i = 0
         while i < len(end_labels):
-            pairs.append((end_labels[i].arrival_time, end_labels[i]))
+            lab = end_labels[i]
+            pairs.append((lab.arrival_time, id(lab), lab))
             i += 1
         pairs.sort()
 
@@ -313,7 +314,7 @@ class RouteCalculator:
 
         i = 0
         while i < len(pairs) and len(routes) < max_routes:
-            lab = pairs[i][1]
+            lab = pairs[i][2]
             segs = self._reconstruct_route_from_label(lab)
             if segs is None:
                 i += 1
