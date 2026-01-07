@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from data_loader import GTFSDataLoader
 from route_calculator import RouteCalculator
 from formatter import RouteFormatter
@@ -55,9 +56,7 @@ def get_station_input(data_loader: GTFSDataLoader, prompt: str) -> tuple:
                 print("Ungültige Eingabe. Bitte versuchen Sie es erneut.\n")
         else:
             print(f"✗ Station '{station_input}' nicht gefunden.")
-            similar_stops = data_loader.find_similar_stops(
-                station_input, max_results=10
-            )
+            similar_stops = data_loader.find_similar_stops(station_input, max_results=10)
             if similar_stops:
                 print("\nÄhnliche Stationen gefunden:")
                 for i, stop in enumerate(similar_stops, 1):
@@ -127,9 +126,7 @@ def main():
             time=time,
         )
         if routes:
-            print(
-                formatter.format_route_output(routes, start_station, end_station)
-            )
+            print(formatter.format_route_output(routes, start_station, end_station))
         else:
             print("=" * 50)
             print(" Keine Route gefunden")
@@ -154,3 +151,5 @@ if __name__ == "__main__":
         print("\n\nProgramm beendet.")
     except Exception as e:
         print(f"\nFehler: {e}")
+
+
